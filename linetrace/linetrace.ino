@@ -7,18 +7,23 @@
 
 #define Kp 0.01
 #define Ki 0
-#define Kd 0.0005
+#define Kd 0.001
 #define PID_SCALE 40
 
 //ライントレース用係数
-#define lKp 0.01
-#define lKi 0
-#define lKd 0.0005
+#define L_Kp 1.5 //1.5
+#define L_Ki 0
+#define L_Kd 0.50 // 0.5
+#define L_PID_SCALE 0.1
 
+#define TARGET_MOTOR_VEL_AVERAGE 70.
 
 #define SERIAL_
 #define LOOP_DELAY 10
 
+//直角曲がる用フラッグ
+int angle_flag = 0; // 0:直線 1:左周りする　-1:右回りする
+int angle_count = 10; // 復帰用。ループを繰り返す用
 
 const uint8_t SX1509_ADDRESS = 0x3E;  // SX1509 I2C address (00)
 
@@ -36,6 +41,10 @@ float duty_L = 100.;
 float dt, preTime;
 float P_R, I_R, D_R, preP_R;
 float P_L, I_L, D_L, preP_L;
+// Line
+float diff = 0.;
+float L_dt, L_preTime;
+float L_P, L_I, L_D, preL_P;
 
 const float reduction_ratio = 280;//減速比
 const float wheel_circumference = 1;//mm 円周
@@ -115,6 +124,7 @@ void setup() {
 
 
   preTime = micros();
+  L_preTime = micros();
   duty_R = 100.0;
   duty_L = 100.0;
 }
@@ -145,30 +155,66 @@ void loop() {
 
     int16_t avePos = positionHistory.averageLast( 10 );
     Serial.print(" avePos = ");
-    Serial.println(avePos);
+    Serial.print(avePos);
 /************/
 
 //  float target_wheel_Lvel = 1500.;
 //  float target_wheel_Rvel = 1500.;
 
-  Serial.print("motor_vel:");
-  Serial.print(pre_motor_Lvel);
-  Serial.print(",");
-  Serial.print(pre_motor_Rvel);
-
-
-
-  float target_motor_Rvel = 60.;
-  float target_motor_Lvel = 60.;
-
   ///// Line trace //////
 
+  // 直角曲がる用
+  // ラインセンサの淵に行ったらcount=11にして、count減るまで同じ復帰動作をさせる
+/*  float angle_threshold = 60.;
+  if(angle_count <= 0){
+    if(avePos > angle_threshold ){//右にラインが出たとき
+      angle_flag = -1;
+      angle_count = 11;
+    }else if(avePos < -angle_threshold){
+      angle_flag = 1;
+      angle_count = 11;
+    }else if(angle_count <= 0){
+      angle_flag = 0;
+    }
+  }
 
-  
-  
+  if(angle_count > 0){
+    --angle_count;
+  }
+  Serial.print(" flag = ");
+  Serial.print(angle_flag);
+  Serial.print(" ");
+  Serial.print(" count= ");
+  Serial.print(angle_count);
+  Serial.print(" ");
+*/
+
+  L_dt = (micros() - L_preTime) / 1000000;
+  L_preTime = micros();
+  L_P  = avePos;
+
+  L_D  = (L_P - preL_P) / L_dt;
+  preL_P = L_P;
+
+  diff = L_PID_SCALE* (L_Kp * L_P + L_Kd * L_D);
+
+  Serial.print("diff:");
+  Serial.print(diff);
+
+//  float target_motor_Rvel = TARGET_MOTOR_VEL_AVERAGE - diff;
+//  float target_motor_Lvel = TARGET_MOTOR_VEL_AVERAGE + diff;
+  float target_motor_Rvel = TARGET_MOTOR_VEL_AVERAGE - diff;
+  float target_motor_Lvel = TARGET_MOTOR_VEL_AVERAGE + diff;
+
+  Serial.print("target_motor_vel:");
+  Serial.print(target_motor_Lvel);
+  Serial.print(",");
+  Serial.print(target_motor_Rvel);
+
+  /*
   target_motor_Rvel = 60.;
   target_motor_Lvel = 60.;
-
+  */
 
   ///// Line trace end//////
 
@@ -200,9 +246,18 @@ void loop() {
   /////////////////
 
 
-//  analogWrite(44, 100);
   rawDrive(duty_L, duty_R);
-//  rawDrive(150, 150);
+
+/*/
+  if(angle_flag == 0){
+    rawDrive(duty_L, duty_R);
+  }else if(angle_flag == -1){//右まわり
+    rawDrive(duty_L, 0);
+  }else if(angle_flag == 1){//右まわり
+    rawDrive(0, duty_R);
+  }
+*/
+
 
   /*
   #ifdef SERIAL
@@ -224,6 +279,7 @@ void loop() {
 //    SerialMonitor();
   #endif
   */
+  Serial.println("");
   delay(LOOP_DELAY);
 }
 
